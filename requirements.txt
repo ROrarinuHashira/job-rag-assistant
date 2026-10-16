@@ -1,0 +1,23 @@
+# 求职岗位 RAG 助手 —— 依赖
+#
+# 安装：.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+# 国内建议加镜像：-i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# --- 检索与数值 ---
+numpy>=2.0
+
+# --- 本地模型推理 ---
+# CPU 版即可；有 NVIDIA 显卡可改装 CUDA 版（体积大很多）
+torch>=2.4
+transformers>=4.40
+
+# --- Web 服务 ---
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# --- 可选：更好的 embedding 后端 ---
+# 装了这个，embedder 会优先用它（检索质量比基座模型好很多）
+# sentence-transformers>=3.0
+#
+# 模型建议：BAAI/bge-small-zh-v1.5 或 shibing624/text2vec-base-chinese
+# 国内可用镜像下载：set HF_ENDPOINT=https://hf-mirror.com

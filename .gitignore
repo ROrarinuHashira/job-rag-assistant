@@ -1,0 +1,26 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---- 依赖与缓存 ----
+.piptmp/
+pip-tmp/
+torchinductor_*/
+.pytest_cache/
+.mypy_cache/
+
+# ---- 数据（语料含个人求职信息，不入库）----
+data/jobs.jsonl
+data/index.npz
+data/*.pdf
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

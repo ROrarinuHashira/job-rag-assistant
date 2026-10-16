@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>求职岗位 RAG 助手</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    margin: 0; background: #f5f6f8; color: #1f2329; line-height: 1.7;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 24px 18px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 18px; }
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 10px;
+    font-size: 12px; background: #e7f5ff; color: #1864ab; margin-right: 6px;
+  }
+  .badge.warn { background: #fff4e6; color: #c0392b; }
+  .card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 14px;
+  }
+  textarea {
+    width: 100%; min-height: 74px; padding: 10px 12px; font-size: 14px;
+    font-family: inherit; border: 1px solid #dee2e6; border-radius: 8px;
+    resize: vertical;
+  }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  button {
+    background: #4c6ef5; color: #fff; border: 0; border-radius: 7px;
+    padding: 9px 20px; font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  button:hover { background: #3b5bdb; }
+  button:disabled { background: #adb5bd; cursor: not-allowed; }
+  button.ghost { background: #fff; color: #4c6ef5; border: 1px solid #4c6ef5; }
+  label { font-size: 13px; color: #495057; }
+  .chips { margin-top: 10px; }
+  .chip {
+    display: inline-block; padding: 4px 11px; margin: 3px 5px 3px 0;
+    background: #f1f3f5; border-radius: 14px; font-size: 12.5px; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .chip:hover { background: #e7f5ff; border-color: #a5d8ff; }
+  #answer {
+    white-space: pre-wrap; font-size: 14.5px; background: #f8f9fa;
+    border-left: 3px solid #4c6ef5; border-radius: 6px; padding: 13px 15px;
+    min-height: 40px;
+  }
+  .hit {
+    border-top: 1px solid #f1f3f5; padding: 10px 0; font-size: 13.5px;
+  }
+  .hit:first-child { border-top: 0; }
+  .hit .t { font-weight: 600; }
+  .hit .meta { color: #6b7280; font-size: 12.5px; }
+  .hit .snip { color: #495057; font-size: 12.5px; margin-top: 3px; }
+  .rank {
+    display: inline-block; width: 22px; height: 22px; line-height: 22px;
+    text-align: center; background: #1f2329; color: #fff; border-radius: 50%;
+    font-size: 12px; margin-right: 7px;
+  }
+  .st { font-size: 12.5px; color: #6b7280; margin-top: 8px; }
+  .err { color: #c0392b; font-size: 13px; }
+  .spin { display: inline-block; animation: sp 1s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>求职岗位 RAG 助手</h1>
+  <div class="sub">
+    <span class="badge" id="b-mode">加载中…</span>
+    <span class="badge" id="b-docs">—</span>
+    <span class="badge" id="b-index">—</span>
+    本地 Qwen2-1.5B · 混合检索（BM25 + 向量）
+  </div>
+
+  <div class="card">
+    <textarea id="q" placeholder="问点什么，比如：哪些岗位要求 RAG 经验？"></textarea>
+    <div class="chips" id="chips"></div>
+    <div class="row">
+      <button id="go">提问</button>
+      <button class="ghost" id="index">构建/重建向量索引</button>
+      <label><input type="checkbox" id="usellm" checked> 用模型生成回答</label>
+      <span class="st" id="status"></span>
+    </div>
+  </div>
+
+  <div class="card" id="answer-card" style="display:none">
+    <div style="font-size:13px;color:#6b7280;margin-bottom:8px">模型回答</div>
+    <div id="answer"></div>
+    <div class="st" id="timing"></div>
+  </div>
+
+  <div class="card" id="hits-card" style="display:none">
+    <div style="font-size:13px;color:#6b7280;margin-bottom:6px">检索到的岗位</div>
+    <div id="hits"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const EX = ['哪些岗位要求 RAG 经验？', '要求 YOLO 或计算机视觉的岗位有哪些？',
+            '长沙有哪些 AI 应用开发的岗位？', '有没有面向 2027 届的算法实习？',
+            '哪些岗位提到了 Python？', '有没有大模型微调相关的岗位？'];
+
+EX.forEach(t => {
+  const b = document.createElement('span');
+  b.className = 'chip'; b.textContent = t;
+  b.onclick = () => { $('q').value = t; };
+  $('chips').appendChild(b);
+});
+
+async function health() {
+  try {
+    const r = await fetch('/api/health');
+    const d = await r.json();
+    $('b-mode').textContent = d.retrieval_mode;
+    $('b-docs').textContent = d.docs + ' 个岗位（' + d.docs_with_jd + ' 个含完整 JD）';
+    $('b-index').textContent = d.vector_index ? '向量索引已就绪' : '向量索引未建（仅 BM25）';
+    $('b-index').className = 'badge' + (d.vector_index ? '' : ' warn');
+  } catch (e) {
+    $('b-mode').textContent = '服务未响应';
+  }
+}
+health();
+
+$('go').onclick = async () => {
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('go').disabled = true;
+  $('status').innerHTML = '<span class="spin">◌</span> 检索并生成中…';
+  $('answer-card').style.display = 'block';
+  $('answer').textContent = '（生成中，本地模型较慢，请稍候）';
+  $('hits-card').style.display = 'none';
+  try {
+    const r = await fetch('/api/query', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ question: q, top_k: 5, use_llm: $('usellm').checked }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '请求失败');
+
+    $('answer').textContent = d.answer || '（未生成回答，见下方检索结果）';
+    $('timing').textContent = `检索 ${d.retrieval_ms}ms`
+      + (d.llm_ms ? ` · 生成 ${(d.llm_ms / 1000).toFixed(1)}s` : '')
+      + ` · 模式 ${d.retrieval_mode}`
+      + (d.llm_error ? ` · 模型错误：${d.llm_error}` : '');
+
+    const box = $('hits'); box.innerHTML = '';
+    d.hits.forEach(h => {
+      const el = document.createElement('div');
+      el.className = 'hit';
+      el.innerHTML = `<span class="rank">${h.rank}</span><span class="t">${esc(h.title)}</span>`
+        + `<div class="meta">${esc(h.company || '—')} · ${esc(h.salary || '—')} · ${esc(h.location || '—')}`
+        + ` · rrf=${h.score.toFixed(5)}`
+        + ` · BM25#${h.bm25_rank || '-'}${h.vector_rank ? ' 向量#' + h.vector_rank : ''}`
+        + `${h.has_jd ? '' : ' · ⚠️ 无完整JD'}</div>`
+        + `<div class="snip">${esc(h.snippet)}</div>`;
+      box.appendChild(el);
+    });
+    $('hits-card').style.display = 'block';
+    $('status').textContent = '完成';
+  } catch (e) {
+    $('answer').innerHTML = `<span class="err">出错：${esc(e.message)}</span>`;
+    $('status').textContent = '';
+  } finally {
+    $('go').disabled = false;
+  }
+};
+
+$('index').onclick = async () => {
+  if (!confirm('重新构建向量索引？首次会加载模型，可能需要 1~2 分钟。')) return;
+  $('index').disabled = true;
+  $('status').innerHTML = '<span class="spin">◌</span> 加载模型并编码全部文档…';
+  try {
+    const r = await fetch('/api/index?force=true', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '失败');
+    $('status').textContent = `索引完成：${d.docs} 篇 / ${d.seconds}s / 后端 ${d.backend}`;
+    health();
+  } catch (e) {
+    $('status').innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  } finally {
+    $('index').disabled = false;
+  }
+};
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+$('q').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('go').click();
+});
+</script>
+</body>
+</html>
